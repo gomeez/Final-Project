@@ -1,0 +1,999 @@
+C51 COMPILER V9.00   MAIN                                                                  04/28/2024 00:06:22 PAGE 1   
+
+
+C51 COMPILER V9.00, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE main.c BROWSE DEBUG OBJECTEXTEND
+
+line level    source
+
+   1          #include <REG52.H>
+   2          #include"pic.c"
+   3          #include <intrins.h>
+   4          #define LCD_DATA P2
+   5          #define button_delay 150  //°´¼üÑÓÊ±
+   6          #define button_acceleration 65  //°´¼ü¼ÓËÙ¶ÈãĞÖµ
+   7          #define GAME_LOCATION 30
+   8          
+   9          #define TRACK_WIDTH  4  // ÈüµÀµÄ¿í¶È
+  10          #define LEFT_BOUNDARY 32   // ×ó±ß½ç¶¨Òå
+  11          #define RIGHT_BOUNDARY 96  // ÓÒ±ß½ç¶¨Òå
+  12          
+  13          sbit change = P3^4;
+  14          sbit OK = P3^5;
+  15          sbit up = P3^2;
+  16          sbit down = P3^0;
+  17          sbit left = P3^1;
+  18          sbit right = P3^3;
+  19          sbit speaker=P3^6; 
+  20          
+  21          sbit LCD_RS=P1^0;
+  22          sbit LCD_RW=P1^1;
+  23          sbit LCD_E=P1^2;
+  24          sbit LCD_CS2=P1^4;              //ÓÒÆÁÑ¡Ôñ£¨×óÓÒÆÁÓĞÊ±ºòÏà·´£©
+  25          sbit LCD_CS1=P1^3;              //×óÆÁÑ¡Ôñ
+  26          sbit LCD_RST=P3^7;
+  27          
+  28          unsigned int up_reg=button_delay;       //°´¼üupÀÛ¼ÓÆ÷
+  29          unsigned int down_reg=button_delay;     //°´¼üdownÀÛ¼ÓÆ÷
+  30          unsigned int left_reg=button_delay;     //°´¼üleftÀÛ¼ÓÆ÷
+  31          unsigned int right_reg=button_delay;    //°´¼ürightÀÛ¼ÓÆ÷
+  32          unsigned int button_a_reg=button_delay; //°´¼übutton_aÀÛ¼ÓÆ÷
+  33          unsigned int button_b_reg=button_delay; //°´¼übutton_bÀÛ¼ÓÆ÷
+  34          unsigned int right_acceleration=0;              //°´¼üright¼ÓËÙ¶È¼Ä´æÆ÷
+  35          unsigned int left_acceleration=0;               //°´¼üleft¼ÓËÙ¶È¼Ä´æÆ÷
+  36          
+  37          unsigned int idata Box_Ram[19];//¶¨ÒåÓÎÏ·µãÕó»º´æ10*16
+  38          unsigned char box_down_reg;//¶¨Òå·½¿éÏÂÂäÀÛ¼Ó¼Ä´æÆ÷
+  39          unsigned char time0_reg;//¶¨Òå¶¨Ê±Æ÷0ÀÛ¼Ó¼Ä´æÆ÷
+  40          unsigned char next_mode;//¶¨ÒåÏÂÒ»¸ö·½¿éµÄÀàĞÍ
+  41          unsigned char next_shape;//¶¨ÒåÏÂÒ»¸ö·½¿éµÄĞÎ×´
+  42          unsigned int destroy_row_num=0;//¶¨ÒåËùÏûµÄĞĞÊı
+  43          unsigned char speed_num=0;//¶¨ÒåÓÎÏ·ËÙ¶ÈµÈ¼¶
+  44          bit game_over_flag;//ÓÎÏ·½áÊø±êÖ¾Î»ÖÃ0±íÊ¾ÓÎÏ·Î´½áÊø
+  45          bit pause_game_flag;//ÓÎÏ·ÔİÍ£±êÖ¾Î»ÖÃ0±íÊ¾ÓÎÏ·Î´ÔİÍ£
+  46          
+  47          struct
+  48          {
+  49                  unsigned char mode;//ÀàĞÍ
+  50                  unsigned char shape;//ĞÎ×´
+  51                  unsigned char x;//x×ø±ê
+  52                  unsigned char y;//y×ø±ê
+  53                  unsigned int box;//¶¨Òå·½¿é»º´æ
+  54          }s_box0,s_box;  //¶¨Òå·½¿é½á¹¹Ìå
+  55          //LCD¼ì²âÃ¦×´Ì¬º¯Êı
+C51 COMPILER V9.00   MAIN                                                                  04/28/2024 00:06:22 PAGE 2   
+
+  56          void LCD_check_busy()
+  57          {
+  58   1              unsigned char temp;
+  59   1              LCD_RS=0;
+  60   1              LCD_RW=1;
+  61   1              do
+  62   1              {
+  63   2                      LCD_DATA=0xff;
+  64   2                      LCD_E=1;
+  65   2                      temp=LCD_DATA;
+  66   2                      LCD_E=0;
+  67   2              }while((temp&0x80)==0x80);              
+  68   1      }
+  69          //Ğ´Ö¸Áî´úÂë£¨csÎª0Ñ¡×óÆÁ£¬csÎª1Ñ¡ÓÒÆÁ£©
+  70          void LCD_W_code(unsigned char tpcode,bit cs)
+  71          {
+  72   1              LCD_RS=0;
+  73   1              LCD_RW=0;
+  74   1              LCD_CS2=~cs;
+  75   1              LCD_CS1=cs;
+  76   1              LCD_DATA=tpcode;
+  77   1              LCD_E=1;
+  78   1              _nop_();
+  79   1              LCD_E=0;
+  80   1      }
+  81          //Ğ´ÏÔÊ¾Êı¾İ£¨csÎª0Ñ¡×óÆÁ£¬csÎª1Ñ¡ÓÒÆÁ£©
+  82          void LCD_W_data(unsigned char tpdata,bit cs)
+  83          {
+  84   1              LCD_check_busy();
+  85   1              LCD_RS=1;
+  86   1              LCD_RW=0;
+  87   1              LCD_CS2=~cs;
+  88   1              LCD_CS1=cs;     
+  89   1              LCD_DATA=tpdata;
+  90   1              LCD_E=1;        
+  91   1              _nop_();
+  92   1              LCD_E=0;
+  93   1      }
+  94          
+  95          //LCD³õÊ¼»¯º¯Êı
+  96          void LCD_initialize()
+  97          {
+  98   1              LCD_RST=0;
+  99   1              _nop_();
+ 100   1              _nop_();
+ 101   1              LCD_RST=1;
+ 102   1              LCD_W_code(0x3f,0);             //¿ªÏÔÊ¾ÉèÖÃ    
+ 103   1              LCD_W_code(0xc0,0);             //ÉèÖÃÏÔÊ¾ÆğÊ¼ĞĞÎªµÚÒ»ĞĞ        
+ 104   1              LCD_W_code(0xb8,0);             //Ò³ÃæµØÖ·ÉèÖÃ  
+ 105   1              LCD_W_code(0x40,0);             //ÁĞµØÖ·ÉèÎª0
+ 106   1              LCD_W_code(0x3f,1);
+ 107   1              LCD_W_code(0xc0,1);     
+ 108   1              LCD_W_code(0xb8,1);
+ 109   1              LCD_W_code(0x40,1);
+ 110   1      }
+ 111          //LCDÇåÆÁº¯Êı
+ 112          void LCD_clear()
+ 113          {
+ 114   1              unsigned char i,j;
+ 115   1              for(j=0;j<8;j++)
+ 116   1              {
+ 117   2                      LCD_W_code(0xb8+j,0);
+C51 COMPILER V9.00   MAIN                                                                  04/28/2024 00:06:22 PAGE 3   
+
+ 118   2                      LCD_W_code(0x40,0);
+ 119   2                      LCD_W_code(0xb8+j,1);
+ 120   2                      LCD_W_code(0x40,1);
+ 121   2                      for(i=0;i<64;i++)
+ 122   2                              {       
+ 123   3                                      LCD_W_data(0x00,0);     
+ 124   3                                      LCD_W_data(0x00,1);
+ 125   3                              }
+ 126   2              }
+ 127   1      }
+ 128          //LCDÏÔÊ¾×Ö·û´®º¯Êı£¨word±íÊ¾ÒªÏÔÊ¾µÄ×Ö·û´®,
+ 129           //length±íÊ¾ÒªÏÔÊ¾µÄ×Ö·û´®¿í¶È,
+ 130           //x±íÊ¾Ê××Ö·ûËùÔÚĞĞÊı,
+ 131           //y±íÊ¾Ê××Ö·ûËùÔÚÁĞÊı£©
+ 132          void LCD_display_word(unsigned char word[],
+ 133                                unsigned int length,
+ 134                                                    unsigned char x,
+ 135                                                    unsigned char y)
+ 136          {
+ 137   1              unsigned char i;
+ 138   1              for(i=0;i<length;i++)
+ 139   1              {
+ 140   2                      
+ 141   2                      LCD_W_code(0xb8+x,0);
+ 142   2                      LCD_W_code(0xb8+x,1);
+ 143   2                      if(y+i<64)
+ 144   2                      {
+ 145   3                              LCD_W_code(0x40+y+i,0); 
+ 146   3                              LCD_W_data(word[i],0);
+ 147   3                      }
+ 148   2                      else
+ 149   2                      {
+ 150   3                              LCD_W_code(y+i,1);      
+ 151   3                              LCD_W_data(word[i],1);
+ 152   3                      }
+ 153   2              }
+ 154   1      }
+ 155          //LCD»­È«ÆÁº¯Êı
+ 156          void LCD_full_draw(unsigned char word[])
+ 157          {
+ 158   1              unsigned char i,j;
+ 159   1              for(i=0;i<8;i++)
+ 160   1              {
+ 161   2                      LCD_W_code(0xb8+i,0);
+ 162   2                      LCD_W_code(0x40,0);     
+ 163   2                      for(j=0;j<64;j++)
+ 164   2                      {
+ 165   3                              LCD_W_data(word[i*128+j],0);
+ 166   3                      }
+ 167   2                      LCD_W_code(0xb8+i,1);
+ 168   2                      LCD_W_code(0x40,1);     
+ 169   2                      for(j=0;j<64;j++)
+ 170   2                      {
+ 171   3                              LCD_W_data(word[i*128+64+j],1);
+ 172   3                      }                       
+ 173   2              }
+ 174   1      }
+ 175          //LCDÏÔÊ¾Ò»¸ö×Ö½Úº¯Êı£¨
+ 176            //x±íÊ¾x×ø±ê,
+ 177            //y±íÊ¾y×ø±ê,
+ 178            //tpdata±íÊ¾ÒªÏÔÊ¾µÄÊı¾İ£©
+ 179          void LCD_display_byte(unsigned char x,
+C51 COMPILER V9.00   MAIN                                                                  04/28/2024 00:06:22 PAGE 4   
+
+ 180                                                    unsigned char y,
+ 181                                                    unsigned char tpdata)
+ 182          {
+ 183   1              if(x<64)
+ 184   1              {
+ 185   2                      LCD_W_code(0xb8+y,0);
+ 186   2                      LCD_W_code(0x40+x,0);
+ 187   2                      LCD_W_data(tpdata,0);   
+ 188   2              }
+ 189   1              else
+ 190   1              {
+ 191   2                      LCD_W_code(0xb8+y,1);
+ 192   2                      LCD_W_code(x,1);
+ 193   2                      LCD_W_data(tpdata,1);   
+ 194   2              }
+ 195   1      } 
+ 196          
+ 197          void LCD_draw(unsigned char word[])
+ 198          {
+ 199   1        unsigned char i,j;
+ 200   1        for(i=0;i<8;i++)
+ 201   1        {
+ 202   2          LCD_W_code(0xb8+i,1);
+ 203   2              LCD_W_code(0x40+20,1);
+ 204   2              for(j=0;j<44;j++)
+ 205   2              {
+ 206   3                LCD_W_data(word[i*44+j],1);
+ 207   3              }
+ 208   2        }
+ 209   1      }
+ 210          //»ù±¾½çÃæÏÔÊ¾º¯Êı
+ 211          void display_basic()
+ 212          {
+ 213   1              unsigned char i;
+ 214   1              for(i=0;i<8;i++)
+ 215   1              {
+ 216   2                      LCD_display_byte(GAME_LOCATION,i,0xff);
+ 217   2                      LCD_display_byte(GAME_LOCATION+41,i,0xff);
+ 218   2              }
+ 219   1      }
+ 220          //Ë¢ĞÂÓÎÏ·ÇøÓòº¯Êı
+ 221          void refurbish_display()
+ 222          {
+ 223   1              unsigned char i,j,tpdata;
+ 224   1              for(i=0;i<8;i++)
+ 225   1              {
+ 226   2                      for(j=0;j<10;j++)
+ 227   2                      {
+ 228   3                              tpdata=0x00;
+ 229   3                              if(  (Box_Ram[2*i]>>(12-j))&0x0001==1  )
+ 230   3                              {
+ 231   4                                      tpdata=0x0f;
+ 232   4                              }
+ 233   3                              if(  (Box_Ram[2*i+1]>>(12-j))&0x0001==1  )
+ 234   3                              {
+ 235   4                                      tpdata|=0xf0;
+ 236   4                              }
+ 237   3                              LCD_display_byte(GAME_LOCATION+1+j*4,i,tpdata);
+ 238   3                              LCD_display_byte(GAME_LOCATION+2+j*4,i,0xbb&tpdata);
+ 239   3                              LCD_display_byte(GAME_LOCATION+3+j*4,i,0xdd&tpdata);
+ 240   3                              LCD_display_byte(GAME_LOCATION+4+j*4,i,tpdata);
+ 241   3                      }
+C51 COMPILER V9.00   MAIN                                                                  04/28/2024 00:06:22 PAGE 5   
+
+ 242   2              }
+ 243   1      }
+ 244          //»ù±¾°´¼ü³ÌĞò(·µ»Ø0±íÊ¾Ã»°´¼ü±»°´ÏÂ£¬·µ»Ø1±íÊ¾down±»°´ÏÂ£¬·µ»Ø2±íÊ¾up±»°´ÏÂ£¬·µ»Ø3±íÊ¾button_a±»°´ÏÂ,·µ»Ø
+             -4±íÊ¾left±»°´ÏÂ,·µ»Ø5±íÊ¾right±»°´ÏÂ)
+ 245          //ÓÎÏ·ÖĞ°´¼üÊ¶±ğ³ÌĞò£¨ÓĞÓÅÏÈ¼¶£¬´Ó¸ßµ½µÍÒÀ´ÎÊÇbutton_a_reg>down>left>right>up£©
+ 246          unsigned char basic_button()
+ 247          {
+ 248   1              unsigned char tpflag=0;
+ 249   1              if(OK==0)
+ 250   1              {
+ 251   2                  if(button_b_reg<button_delay*8)
+ 252   2                      {
+ 253   3                        button_b_reg++;
+ 254   3                      }
+ 255   2                      else
+ 256   2                      {
+ 257   3                        button_b_reg=0;
+ 258   3                        tpflag=6;
+ 259   3                      }
+ 260   2              }
+ 261   1              else
+ 262   1              {
+ 263   2                   button_b_reg=button_delay*8;
+ 264   2              }
+ 265   1              if(down==0)
+ 266   1              {
+ 267   2                      if(down_reg<button_delay)//°´¼üÒ»Ö±±»°´ÏÂÊ±ÉèÖÃÊ±¼ä¼ä¸ô´¥·¢
+ 268   2                      {
+ 269   3                              down_reg++;
+ 270   3                      }
+ 271   2                      else
+ 272   2                      {
+ 273   3                              down_reg=0;
+ 274   3                              tpflag=1;//·µ»Ø1±íÊ¾down±»°´ÏÂ
+ 275   3                      }               
+ 276   2              }
+ 277   1              else
+ 278   1              {
+ 279   2                      down_reg=button_delay;//ÊÍ·Å°´¼üÊ±ÖÃ°´¼ü»º´æÎªbutton_delay£¬ÒÔ±ãÔÚÏÂ´Î°´¼üÊ±¼°Ê±ÏìÓ¦
+ 280   2              }
+ 281   1              if(up==0)
+ 282   1              {
+ 283   2                      if(up_reg<button_delay)//°´¼üÒ»Ö±±»°´ÏÂÊ±ÉèÖÃÊ±¼ä¼ä¸ô´¥·¢
+ 284   2                      {
+ 285   3                              up_reg++;
+ 286   3                      }
+ 287   2                      else
+ 288   2                      {
+ 289   3                              up_reg=0;
+ 290   3                              tpflag=2;//·µ»Ø2±íÊ¾up±»°´ÏÂ
+ 291   3                      }               
+ 292   2              }
+ 293   1              else
+ 294   1              {
+ 295   2                      up_reg=button_delay;//ÊÍ·Å°´¼üÊ±ÖÃ°´¼ü»º´æÎªbutton_delay£¬ÒÔ±ãÔÚÏÂ´Î°´¼üÊ±¼°Ê±ÏìÓ¦
+ 296   2              }
+ 297   1              if(change==0)
+ 298   1              {
+ 299   2                      if(button_a_reg<button_delay)//°´¼üÒ»Ö±±»°´ÏÂÊ±ÉèÖÃÊ±¼ä¼ä¸ô´¥·¢
+ 300   2                      {
+ 301   3                              button_a_reg++;
+ 302   3                      }
+C51 COMPILER V9.00   MAIN                                                                  04/28/2024 00:06:22 PAGE 6   
+
+ 303   2                      else
+ 304   2                      {
+ 305   3                              button_a_reg=0;
+ 306   3                              tpflag=3;//·µ»Ø3±íÊ¾button_a±»°´ÏÂ
+ 307   3                      }               
+ 308   2              }
+ 309   1              else
+ 310   1              {
+ 311   2                      button_a_reg=button_delay;//ÊÍ·Å°´¼üÊ±ÖÃ°´¼ü»º´æÎªbutton_delay£¬ÒÔ±ãÔÚÏÂ´Î°´¼üÊ±¼°Ê±ÏìÓ¦
+ 312   2              }
+ 313   1              if(left==0)
+ 314   1              {
+ 315   2                      if(left_reg<(button_delay))//°´¼üÒ»Ö±±»°´ÏÂÊ±ÉèÖÃÊ±¼ä¼ä¸ô´¥·¢
+ 316   2                      {
+ 317   3                              left_reg++;
+ 318   3                      }
+ 319   2                      else
+ 320   2                      {
+ 321   3                              left_reg=left_acceleration*button_acceleration;
+ 322   3                              if(left_acceleration<2)left_acceleration++;
+ 323   3                              tpflag=4;//·µ»Ø4±íÊ¾left±»°´ÏÂ
+ 324   3                      }               
+ 325   2              }
+ 326   1              else
+ 327   1              {
+ 328   2                      left_acceleration=0;
+ 329   2                      left_reg=button_delay;//ÊÍ·Å°´¼üÊ±ÖÃ°´¼ü»º´æÎªbutton_delay£¬ÒÔ±ãÔÚÏÂ´Î°´¼üÊ±¼°Ê±ÏìÓ¦
+ 330   2              }
+ 331   1              if(right==0)
+ 332   1              {
+ 333   2                      if(right_reg<(button_delay))//°´¼üÒ»Ö±±»°´ÏÂÊ±ÉèÖÃÊ±¼ä¼ä¸ô´¥·¢
+ 334   2                      {
+ 335   3                              right_reg++;
+ 336   3                      }
+ 337   2                      else
+ 338   2                      {
+ 339   3                              right_reg=right_acceleration*button_acceleration;
+ 340   3                              if(right_acceleration<2)right_acceleration++;
+ 341   3                              tpflag=5;//·µ»Ø5±íÊ¾right±»°´ÏÂ
+ 342   3                      }               
+ 343   2              }
+ 344   1              else
+ 345   1              {
+ 346   2                      right_acceleration=0;
+ 347   2                      right_reg=button_delay;//ÊÍ·Å°´¼üÊ±ÖÃ°´¼ü»º´æÎªbutton_delay£¬ÒÔ±ãÔÚÏÂ´Î°´¼üÊ±¼°Ê±ÏìÓ¦
+ 348   2              }
+ 349   1              return(tpflag);
+ 350   1      }
+ 351          //¼ì²é¸²¸Çº¯Êı£¨¼ì²é´ËÊ±´øÈëµÄ²ÎÊıËùÈ·¶¨µÄ·½¿éÊÇ·ñ»á¸²¸ÇÔ­ÓĞÍ¼ĞÎ£¬²»»á¸²¸Ç·µ»Ø1£¬¸²¸Ç·µ»Ø0£©
+ 352          bit check_cover(unsigned char tpx,unsigned char tpy,unsigned int tpbox)
+ 353          {
+ 354   1              unsigned char i;
+ 355   1              bit tpflag=1;
+ 356   1              unsigned int temp;
+ 357   1              temp=s_box.box;
+ 358   1              for(i=0;i<4;i++)
+ 359   1              {
+ 360   2                      Box_Ram[3-i+s_box.y]&=(~((temp&0x000f)<<(9-s_box.x))); 
+ 361   2                      temp=temp>>4;
+ 362   2              }//ÏÈ½«ÏÖÓĞµÄ·½¿é´ÓÓÎÏ·µãÕó»º´æÖĞÉ¾³ı
+ 363   1              temp=tpbox;
+ 364   1              for(i=0;i<4;i++)
+C51 COMPILER V9.00   MAIN                                                                  04/28/2024 00:06:22 PAGE 7   
+
+ 365   1              {
+ 366   2                      if((((temp&0x000f)<<(9-tpx))&Box_Ram[3-i+tpy])!=0x0000)
+ 367   2                      {
+ 368   3                              tpflag=0;
+ 369   3                      }
+ 370   2                      temp=temp>>4;
+ 371   2              }//¼ì²é·½¿éÊÇ·ñºÍÔ­ÓĞÍ¼ĞÎÖØµş,ÖØµşÖÃ±êÖ¾Î»tpflagÎª0,²»ÖØµş²»ÖÃ±êÖ¾Î»£¬¼´tpflagÎª1
+ 372   1              temp=s_box.box;
+ 373   1              for(i=0;i<4;i++)
+ 374   1              {
+ 375   2                      Box_Ram[3-i+s_box.y]|=((temp&0x000f)<<(9-s_box.x));
+ 376   2                      temp=temp>>4;
+ 377   2              }//ÔÚÓÎÏ·µãÕó»º´æÖĞ»Ö¸´Ô­ÓĞ·½¿é
+ 378   1              return(tpflag);
+ 379   1      }
+ 380          //·½¿é»º´æÊı¾İº¯Êı£¨ÊäÈë·½¿éÀàĞÍºÍĞÎ×´¼´¿É»ñµÃ·½¿é»º´æÊı¾İ£©
+ 381          unsigned int box0_read_data(unsigned char tpmode,unsigned char tpshape)
+ 382          {
+ 383   1              unsigned int tpbox;
+ 384   1         // ºöÂÔ tpmode£¬ÒòÎªÎÒÃÇÖ»Éú³ÉÒ»ÖÖ³µĞÎ×´
+ 385   1         (void)tpmode; 
+*** WARNING C275 IN LINE 385 OF MAIN.C: expression with possibly no effect
+ 386   1      
+ 387   1          tpbox = 0x4E4E; // Ä¬ÈÏË®Æ½ H ĞÍ³µÉí
+ 388   1          return tpbox;
+ 389   1      
+ 390   1      }
+*** WARNING C280 IN LINE 381 OF MAIN.C: 'tpshape': unreferenced local variable
+ 391          
+ 392          //·½¿é»º´æÊı¾İº¯Êı£¨ÊäÈë·½¿éÀàĞÍºÍĞÎ×´¼´¿É»ñµÃ·½¿é»º´æÊı¾İ£©
+ 393          unsigned int box_read_data(unsigned char tpmode,unsigned char tpshape)
+ 394          {
+ 395   1              unsigned int tpbox;
+ 396   1         // ºöÂÔ tpmode£¬ÒòÎªÎÒÃÇÖ»Éú³ÉÒ»ÖÖ³µĞÎ×´
+ 397   1         (void)tpmode; 
+*** WARNING C275 IN LINE 397 OF MAIN.C: expression with possibly no effect
+ 398   1      
+ 399   1          tpbox = 0xE4E4; // Ä¬ÈÏË®Æ½ H ĞÍ³µÉí  0000 1110 0100 1110 0100
+ 400   1          return tpbox;
+ 401   1      
+ 402   1      }
+*** WARNING C280 IN LINE 393 OF MAIN.C: 'tpshape': unreferenced local variable
+ 403          
+ 404          //·½¿éÔØÈëº¯Êı
+ 405          void box0_load()
+ 406          {
+ 407   1              s_box0.box=box0_read_data(s_box0.mode,s_box0.shape);
+ 408   1      }
+ 409          //·½¿éÔØÈëº¯Êı
+ 410          void box_load()
+ 411          {
+ 412   1              s_box.box=box_read_data(s_box.mode,s_box.shape);
+ 413   1      }
+ 414          //·½¿éÓ³ÉäÓÎÏ·µãÕó»º´æº¯Êı£¨²ÎÊıÊÇÔ­À´·½¿éµÄÎ»ÖÃ¡¢»º´æ£¬ÏÈÏûÈ¥Ô­ÓĞÎ»ÖÃµÄ·½¿é£©
+ 415          void box0_to_Box_Ram(unsigned char tpx,unsigned char tpy,unsigned int tpbox)
+ 416          {
+ 417   1              unsigned char i;
+ 418   1              unsigned int temp;
+ 419   1              temp=tpbox;
+ 420   1              for(i=0;i<4;i++)
+ 421   1              {
+ 422   2                      Box_Ram[3-i+tpy]=Box_Ram[3-i+tpy]&(~((temp&0x000f)<<(9-tpx))); 
+C51 COMPILER V9.00   MAIN                                                                  04/28/2024 00:06:22 PAGE 8   
+
+ 423   2                      temp=temp>>4;
+ 424   2              }//´ÓÓÎÏ·µãÕó»º´æÖĞÉ¾³ıÒÔÇ°µÄ·½¿é
+ 425   1              temp=s_box0.box;
+ 426   1              for(i=0;i<4;i++)
+ 427   1              {
+ 428   2                      Box_Ram[3-i+s_box0.y]=((temp&0x000f)<<(9-s_box0.x))|Box_Ram[3-i+s_box0.y];
+ 429   2                      temp=temp>>4;
+ 430   2              }//ÔÚÓÎÏ·µãÕó»º´æÖĞ¼ÓÈëĞÂµÄ·½¿é
+ 431   1      }
+ 432          
+ 433          //·½¿éÓ³ÉäÓÎÏ·µãÕó»º´æº¯Êı£¨²ÎÊıÊÇÔ­À´·½¿éµÄÎ»ÖÃ¡¢»º´æ£¬ÏÈÏûÈ¥Ô­ÓĞÎ»ÖÃµÄ·½¿é£©
+ 434          void box_to_Box_Ram(unsigned char tpx,unsigned char tpy,unsigned int tpbox)
+ 435          {
+ 436   1              unsigned char i;
+ 437   1              unsigned int temp;
+ 438   1              temp=tpbox;
+ 439   1              for(i=0;i<4;i++)
+ 440   1              {
+ 441   2                      Box_Ram[3-i+tpy]=Box_Ram[3-i+tpy]&(~((temp&0x000f)<<(9-tpx))); 
+ 442   2                      temp=temp>>4;
+ 443   2              }//´ÓÓÎÏ·µãÕó»º´æÖĞÉ¾³ıÒÔÇ°µÄ·½¿é
+ 444   1              temp=s_box.box;
+ 445   1              for(i=0;i<4;i++)
+ 446   1              {
+ 447   2                      Box_Ram[3-i+s_box.y]=((temp&0x000f)<<(9-s_box.x))|Box_Ram[3-i+s_box.y];
+ 448   2                      temp=temp>>4;
+ 449   2              }//ÔÚÓÎÏ·µãÕó»º´æÖĞ¼ÓÈëĞÂµÄ·½¿é
+ 450   1      }
+ 451          //·½¿éÓ³ÉäÓÎÏ·µãÕó»º´æº¯Êı£¨²ÎÊıÊÇÔ­À´·½¿éµÄÎ»ÖÃ¡¢»º´æ£¬ÏÈÏûÈ¥Ô­ÓĞÎ»ÖÃµÄ·½¿é£©
+ 452          void box_to_Box_Ram_clean(unsigned char tpx,unsigned char tpy,unsigned int tpbox)
+ 453          {
+ 454   1              unsigned char i;
+ 455   1              unsigned int temp;
+ 456   1              temp=tpbox;
+ 457   1              for(i=0;i<4;i++)
+ 458   1              {
+ 459   2                      Box_Ram[3-i+tpy]=Box_Ram[3-i+tpy]&(~((temp&0x000f)<<(9-tpx))); 
+ 460   2                      temp=temp>>4;
+ 461   2              }//´ÓÓÎÏ·µãÕó»º´æÖĞÉ¾³ıÒÔÇ°µÄ·½¿é
+ 462   1      }
+ 463          //ÏÔÊ¾Êı×Öº¯Êı£¨
+ 464            //x±íÊ¾x×ø±ê,
+ 465            //y±íÊ¾y×ø±ê,
+ 466            //tpdata±íÊ¾ÒªÏÔÊ¾µÄÊı×Ö£©
+ 467          //ÏÔÊ¾ËÙ¶Èº¯Êı
+ 468          void show_num(unsigned char x,
+ 469                                                    unsigned char y,
+ 470                                                    unsigned char tpdata)
+ 471          {
+ 472   1              unsigned char i;
+ 473   1              for(i=0;i<4;i++)
+ 474   1              {
+ 475   2                      LCD_display_byte(x+i,y,num_data[tpdata*4+i]);   
+ 476   2              }
+ 477   1      } 
+ 478          void show_speed_num(unsigned char x,unsigned char y)
+ 479          {
+ 480   1              show_num(x,y,speed_num);
+ 481   1      }
+ 482          //ÏÔÊ¾µÃ·Öº¯Êı
+ 483          void show_score_num(unsigned char x,unsigned char y)
+ 484          {
+C51 COMPILER V9.00   MAIN                                                                  04/28/2024 00:06:22 PAGE 9   
+
+ 485   1              show_num(x,y,destroy_row_num/10000);
+ 486   1              show_num(x+=5,y,(destroy_row_num%10000)/1000);
+ 487   1              show_num(x+=5,y,(destroy_row_num%1000)/100);
+ 488   1              show_num(x+=5,y,(destroy_row_num%100)/10);
+ 489   1              show_num(x+=5,y,destroy_row_num%10);
+ 490   1      }
+ 491          //ÏûĞĞº¯Êı
+ 492          void destroy_row()
+ 493          {
+ 494   1              unsigned char i,j=0;
+ 495   1              unsigned char tpflag[4]={0,0,0,0};//×î¶àÒ»´ÎÖ»ÄÜÏûËÄĞĞ£¬ËùÒÔÉèÖÃËÄ¸ö±êÖ¾Î»¼´¿É,³õÖµÎª0
+ 496   1              for(i=0;i<16;i++)
+ 497   1              {
+ 498   2                      if((Box_Ram[i]&0x3ffc)==0x3ffc)
+ 499   2                      {
+ 500   3                              tpflag[j]=i+1;//tpflagÎª0±íÊ¾²»±êÖ¾£¬1±íÊ¾µÚ0ĞĞ»º´æÎª0xffff£¬n±íÊ¾µÚn+1ĞĞ»º´æÎª0xffff
+ 501   3                              destroy_row_num++;//Ïû³ıµÄĞĞÊı¼ÓÒ»
+ 502   3                              /*Èç²»°ÑBox_Ram[19]¶¨Òå³ÉidataÀàĞÍµÄ»°¼ÓÈëÕâ¶Î´úÂëÏÔÊ¾Êı¾İÇø¾ÍÒç³öÁË*/
+ 503   3                              if(destroy_row_num%30==0&&speed_num!=9)
+ 504   3                              {
+ 505   4                                      speed_num++;//Ïû¹»ÈıÊ®ĞĞÓÎÏ·ËÙ¶È¼ÓÒ»
+ 506   4                                      show_speed_num(13,4);//µ÷ÓÃÏÔÊ¾ÓÎÏ·ËÙ¶Èº¯Êı
+ 507   4                              }
+ 508   3                              /*Èç²»°ÑBox_Ram[19]¶¨Òå³ÉidataÀàĞÍµÄ»°¼ÓÈëÕâ¶Î´úÂëÏÔÊ¾Êı¾İÇø¾ÍÒç³öÁË*/
+ 509   3                              j++;
+ 510   3                              if(j==4)
+ 511   3                              {
+ 512   4                                      break;
+ 513   4                              }//¼ì²éÍêÓĞËÄĞĞÒªÏû³ıÔòÍË³ö¼ì²éÑ­»·
+ 514   3                      }
+ 515   2              }//ÒÀ´Î¼ì²âÊÇ·ñÓĞĞĞ»º´æÎª0xffff£¬Èç¹ûÊÇÔò±êÖ¾tpflagÎª´ËĞĞµÄĞĞºÅ
+ 516   1              for(j=0;j<4;j++)
+ 517   1              {
+ 518   2                      if(tpflag[j]!=0)
+ 519   2                      {
+ 520   3                              for(i=tpflag[j]-1;i>0;i--)
+ 521   3                              {
+ 522   4                              Box_Ram[i]=Box_Ram[i-1];
+ 523   4                              Box_Ram[0]=0x2004;
+ 524   4                              }
+ 525   3                      }
+ 526   2              }//±»±êÖ¾µÄĞĞÒÀ´Î±»ÉÏÒ»ĞĞËùÈ¡´ú£¬¼´±»ÏûÈ¥
+ 527   1              show_score_num(3,1);
+ 528   1      }
+ 529          //ÏÔÊ¾ÏÂÒ»¸ö·½¿éº¯Êı
+ 530          void show_next_box()
+ 531          {
+ 532   1              unsigned char i,tpdata;
+ 533   1              unsigned int temp;
+ 534   1              temp=box_read_data(next_mode,next_shape);
+ 535   1              for(i=0;i<4;i++)
+ 536   1              {
+ 537   2                      tpdata=0x00;
+ 538   2                      if(  ((temp>>(15-i))&0x0001)==1  )
+ 539   2                      {
+ 540   3                              tpdata=0x0f;
+ 541   3                      }
+ 542   2                      if(  ((temp>>(11-i))&0x0001)==1  )
+ 543   2                      {
+ 544   3                              tpdata|=0xf0;
+ 545   3                      }
+ 546   2                      LCD_display_byte(7+i*4,6,tpdata);
+C51 COMPILER V9.00   MAIN                                                                  04/28/2024 00:06:22 PAGE 10  
+
+ 547   2                      LCD_display_byte(8+i*4,6,0xbb&tpdata);
+ 548   2                      LCD_display_byte(9+i*4,6,0xdd&tpdata);
+ 549   2                      LCD_display_byte(10+i*4,6,tpdata);      
+ 550   2                      tpdata=0x00;
+ 551   2                      if(  ((temp>>(7-i))&0x0001)==1  )
+ 552   2                      {
+ 553   3                              tpdata=0x0f;
+ 554   3                      }
+ 555   2                      if(  ((temp>>(3-i))&0x0001)==1  )
+ 556   2                      {
+ 557   3                              tpdata|=0xf0;
+ 558   3                      }
+ 559   2                      LCD_display_byte(7+i*4,7,tpdata);
+ 560   2                      LCD_display_byte(8+i*4,7,0xbb&tpdata);
+ 561   2                      LCD_display_byte(9+i*4,7,0xdd&tpdata);
+ 562   2                      LCD_display_byte(10+i*4,7,tpdata);              
+ 563   2              }
+ 564   1      }
+ 565          //·½¿éÉú³Éº¯Êı
+ 566          void box0_build()
+ 567          {
+ 568   1              s_box0.x=3;
+ 569   1              s_box0.y=12;
+ 570   1      }
+ 571          //ĞÂ·½¿éÉú³Éº¯Êı
+ 572          void box_build()
+ 573          {
+ 574   1              s_box.x=TL0%5;
+ 575   1              s_box.y=0;
+ 576   1              show_next_box();//·Åµ½game_execute()º¯ÊıÖĞ²»ÖªµÀÎªÊ²Ã´¾ÍÊÇ²»Õı³£ÏÔÊ¾(2015×¢ÊÍ£º³ÌĞò¿ÉÄÜÖØÈëÁË)
+ 577   1      }
+ 578          void game_button()
+ 579          {
+ 580   1          switch(basic_button())
+ 581   1          {
+ 582   2                  //speed_num =  basic_button();
+ 583   2              //case 3: if(s_box.y!=0)//3±íÊ¾button_a±»°´ÏÂ
+ 584   2                       case 2: if(1)//3±íÊ¾button_a±»°´ÏÂ
+ 585   2                      {
+ 586   3                          EA=0;//¹ØÖĞ¶Ï£¬Èç¹û²»¹ØµÄ»°¿ÉÄÜÒıÆğÓÎÏ·ÏÔÊ¾»ìÂÒ
+ 587   3                          speaker=0;
+ 588   3                          if(s_box0.shape==3&&check_cover(s_box0.x,s_box0.y,box_read_data(s_box0.mode,0)))
+ 589   3                          {
+ 590   4                                                              
+ 591   4                              s_box0.shape=0;
+ 592   4                              box0_load();
+ 593   4                              box0_to_Box_Ram(s_box0.x,s_box0.y,box_read_data(s_box0.mode,3));
+ 594   4                          }
+ 595   3                          else if(check_cover(s_box0.x,s_box.y,box_read_data(s_box0.mode,0)))
+ 596   3                          {   if(check_cover(s_box0.x,s_box0.y,box_read_data(s_box0.mode,s_box0.shape+1)))
+ 597   4                                                              {       
+ 598   5                                                                      s_box0.shape++;
+ 599   5                                                                      box0_load();
+ 600   5                                                                      box0_to_Box_Ram(s_box0.x,s_box0.y,box_read_data(s_box0.mode,s_box0.shape-1));
+ 601   5                                                              }
+ 602   4                           }
+ 603   3                          EA=1;//¿ªÖĞ¶Ï
+ 604   3                          speaker=1;
+ 605   3                                              }break;
+ 606   2              //case 1: if(s_box0.y!=0)//1±íÊ¾down±»°´ÏÂ
+ 607   2                      case 1: if(1)//1±íÊ¾down±»°´ÏÂ
+ 608   2              {
+C51 COMPILER V9.00   MAIN                                                                  04/28/2024 00:06:22 PAGE 11  
+
+ 609   3                  //EA=0;//¹ØÖĞ¶Ï£¬Èç¹û²»¹ØµÄ»°¿ÉÄÜÒıÆğÓÎÏ·ÏÔÊ¾»ìÂÒ
+ 610   3                  speaker=0;
+ 611   3                  if(check_cover(s_box0.x,s_box0.y+1,s_box0.box))//¼ì²âÊÇ·ñÄÜÏÂ½µ£¬Ö¸µ¼²»ÄÜÔÙÏÂ½µÎªÖ¹
+ 612   3                  {
+ 613   4                      s_box0.y++;
+ 614   4                      box0_to_Box_Ram(s_box0.x,s_box0.y-1,s_box0.box);
+ 615   4                  }
+ 616   3                  // destroy_row();
+ 617   3                  // box_build();
+ 618   3                  // box_load();
+ 619   3                              //              //      game_over_flag=check_game_over();//ÓÎÏ·½áÊø±êÖ¾Î»ÖÃ1±íÊ¾ÓÎÏ·½áÊø
+ 620   3                              //              //      next_box();
+ 621   3                  // box_to_Box_Ram(s_box.x,s_box.y,s_box.box);
+ 622   3                  //EA=1;//¿ªÖĞ¶Ï
+ 623   3                  speaker=1;
+ 624   3                  }break;
+ 625   2              //case 4: if(s_box.y!=0)//4±íÊ¾left±»°´ÏÂ
+ 626   2                      case 4: if(1)//4±íÊ¾left±»°´ÏÂ
+ 627   2              {
+ 628   3                  //EA=0;//¹ØÖĞ¶Ï£¬Èç¹û²»¹ØµÄ»°¿ÉÄÜÒıÆğÓÎÏ·ÏÔÊ¾»ìÂÒ
+ 629   3                  speaker=0;
+ 630   3                  if(check_cover(s_box0.x-1,s_box0.y,s_box0.box))
+ 631   3                  {
+ 632   4                      s_box0.x--;
+ 633   4                      box0_to_Box_Ram(s_box0.x+1,s_box0.y,s_box0.box);
+ 634   4                  }
+ 635   3                  //EA=1;//¿ªÖĞ¶Ï
+ 636   3                  speaker=1;
+ 637   3              }break;
+ 638   2              //case 5: if(s_box0.y!=0)//5±íÊ¾right±»°´ÏÂ
+ 639   2                      case 5: if(1)//5±íÊ¾right±»°´ÏÂ
+ 640   2                      {
+ 641   3                         // EA=0;//¹ØÖĞ¶Ï£¬Èç¹û²»¹ØµÄ»°¿ÉÄÜÒıÆğÓÎÏ·ÏÔÊ¾»ìÂÒ
+ 642   3                          speaker=0;
+ 643   3                          if(check_cover(s_box0.x+1,s_box0.y,s_box0.box))
+ 644   3                          {
+ 645   4                              s_box0.x++;
+ 646   4                              box0_to_Box_Ram(s_box0.x-1,s_box0.y,s_box0.box);
+ 647   4                          }
+ 648   3                                              //      EA=1;//¿ªÖĞ¶Ï
+ 649   3                                                      speaker=1;
+ 650   3                                              }break;
+ 651   2              case 3: //2±íÊ¾up±»°´ÏÂ
+ 652   2                  speaker=0;
+ 653   2                  speaker=0;
+ 654   2                  if(check_cover(s_box0.x,s_box0.y-1,s_box0.box))//¼ì²âÊÇ·ñÄÜÉÏÉı
+ 655   2                  {
+ 656   3                      s_box0.y--;
+ 657   3                      box0_to_Box_Ram(s_box0.x,s_box0.y+1,s_box0.box);
+ 658   3                  }
+ 659   2                  speaker=1;
+ 660   2                  break;
+ 661   2              default:;
+ 662   2          }   
+ 663   1      }
+ 664          //¼ì²éÓÎÏ·½áÊøº¯Êı£¨ÓÎÏ·½áÊø·µ»Ø1£¬ÓÎÏ·Ã»ÓĞ½áÊø·µ»Ø0£©
+ 665          bit check_game_over()
+ 666          {
+ 667   1              unsigned char i;
+ 668   1              bit tpflag=0;
+ 669   1              unsigned int temp;
+ 670   1              temp=s_box.box;
+C51 COMPILER V9.00   MAIN                                                                  04/28/2024 00:06:22 PAGE 12  
+
+ 671   1              for(i=0;i<4;i++)
+ 672   1              {
+ 673   2                      if((((temp&0x000f)<<(9-s_box.x))&Box_Ram[3-i+s_box.y])!=0x0000)
+ 674   2                      {
+ 675   3                              tpflag=1;
+ 676   3                      }
+ 677   2                      temp=temp>>4;
+ 678   2              }//¼ì²éĞÂ½¨·½¿éÊÇ·ñºÍÔ­ÓĞÍ¼ĞÎÖØµş,ÖØµşÖÃ±êÖ¾Î»tpflagÎª1,²»ÖØµş²»ÖÃ±êÖ¾Î»£¬¼´tpflagÎª0
+ 679   1              return(tpflag);
+ 680   1      }
+ 681          //ÓÎÏ·Ö´ĞĞº¯Êı£¨¿ØÖÆ·½¿éÏÂÂä£¬¼ì²âÊÇ·ñµ½µ×£¬Èç¹ûµ½µ×µ÷ÓÃÏûĞĞº¯Êı£©
+ 682          void game_execute()
+ 683          {
+ 684   1              if(box_down_reg<20-(speed_num<<1))
+ 685   1              {                                 
+ 686   2                      box_down_reg++;
+ 687   2              }
+ 688   1              else
+ 689   1              {
+ 690   2                      box_down_reg=0;
+ 691   2                      if(check_cover(s_box.x,s_box.y+1,s_box.box))
+ 692   2                      {//Ã»ÓĞ¸²¸Ç£¬»¹¿ÉÒÔÏÂ½µ£¬Èç¹û»¹ÄÜÏÂ½µÔò¼ÌĞøÏÂ½µ
+ 693   3                              s_box.y++;
+ 694   3                              box_to_Box_Ram(s_box.x,s_box.y-1,s_box.box);
+ 695   3                              box0_to_Box_Ram(s_box0.x,s_box0.y-1,s_box0.box);
+ 696   3                      }
+ 697   2                      else if(s_box.y>11)
+ 698   2                      {
+ 699   3                              box_to_Box_Ram_clean(s_box.x,s_box.y,s_box.box);
+ 700   3                              destroy_row_num++;
+ 701   3                              show_score_num(3,1);    
+ 702   3                              box_build();
+ 703   3                              box_load();
+ 704   3                              game_over_flag=check_game_over();//ÓÎÏ·½áÊø±êÖ¾Î»ÖÃ1±íÊ¾ÓÎÏ·½áÊø
+ 705   3                              box_to_Box_Ram(s_box.x,s_box.y,s_box.box);
+ 706   3                              box0_to_Box_Ram(s_box0.x,s_box0.y-1,s_box0.box);
+ 707   3                              box_down_reg=(20-(speed_num<<1)-1);//ÎªÁËÊ¹·½¿éÒ»³öÏÖ¾ÍÄÜ±ä»»ĞÎ×´£¬ËùÒÔĞèÒª¾¡¿ìÊ¹µÃ·½¿éÏÂ½µÒ»ĞĞ£¬²»ÖªµÀ
+             -ÎªÊ²Ã´×î¸ßĞĞ²»ÄÜ±ä»»ĞÎ×´      
+ 708   3                      }
+ 709   2                      else    
+ 710   2                      {
+ 711   3                  destroy_row();
+ 712   3                              // box_build();
+ 713   3                              // box_load();
+ 714   3                              game_over_flag=1;//ÓÎÏ·½áÊø±êÖ¾Î»ÖÃ1±íÊ¾ÓÎÏ·½áÊø
+ 715   3                              // box_to_Box_Ram(s_box.x,s_box.y,s_box.box);
+ 716   3                              // box0_to_Box_Ram(s_box0.x,s_box0.y-1,s_box0.box);
+ 717   3                              // box_down_reg=(20-(speed_num<<1)-1);//ÎªÁËÊ¹·½¿éÒ»³öÏÖ¾ÍÄÜ±ä»»ĞÎ×´£¬ËùÒÔĞèÒª¾¡¿ìÊ¹µÃ·½¿éÏÂ½µÒ»ĞĞ£¬²»Ö
+             -ªµÀÎªÊ²Ã´×î¸ßĞĞ²»ÄÜ±ä»»ĞÎ×´
+ 718   3      
+ 719   3                      }//Èç¹û²»ÄÜÏÂ½µÔòµ÷ÓÃÏûĞĞº¯Êı¼ì²éÊÇ·ñ¿ÉÒÔÏûĞĞ£¬Ö®ºóÖØĞÂ½¨Á¢·½¿é
+ 720   2              }
+ 721   1      
+ 722   1      
+ 723   1      
+ 724   1              
+ 725   1      }
+ 726          //Ñ¡ÔñÓÎÏ·ËÙ¶Èº¯Êı
+ 727          void select_speed()
+ 728          {
+ 729   1              unsigned char i;
+ 730   1              bit tpflag=1;//ÖÃÑ­»·±êÖ¾Î»Îª1
+C51 COMPILER V9.00   MAIN                                                                  04/28/2024 00:06:22 PAGE 13  
+
+ 731   1              LCD_clear();
+ 732   1              for(i=0;i<128;i++)
+ 733   1              {
+ 734   2                      LCD_display_byte(i,0,0xff);
+ 735   2                      LCD_display_byte(i,7,0xff);
+ 736   2              }
+ 737   1              LCD_display_byte(60,4,0x7f);
+ 738   1              LCD_display_byte(59,4,0x3e);
+ 739   1              LCD_display_byte(58,4,0x1c);
+ 740   1              LCD_display_byte(57,4,0x08);
+ 741   1              LCD_display_byte(67,4,0x7f);
+ 742   1              LCD_display_byte(68,4,0x3e);
+ 743   1              LCD_display_byte(69,4,0x1c);
+ 744   1              LCD_display_byte(70,4,0x08);
+ 745   1              LCD_display_word(speed_data,24,3,52);
+ 746   1      
+ 747   1              show_speed_num(62,4);
+ 748   1              while(tpflag)
+ 749   1              {
+ 750   2                      switch(basic_button())
+ 751   2                      {
+ 752   3                              case 4: if(speed_num!=0)
+ 753   3                                              {
+ 754   4                                                      speaker=0;
+ 755   4                                                      speed_num--;
+ 756   4                                                      show_speed_num(62,4);
+ 757   4                                                      speaker=1;
+ 758   4                                              }
+ 759   3                                              while(left==0);
+ 760   3                                              break;
+ 761   3                              case 5: if(speed_num!=9)
+ 762   3                                              {
+ 763   4                                                  speaker=0;
+ 764   4                                                      speed_num++;
+ 765   4                                                      show_speed_num(62,4);
+ 766   4                                                      speaker=1;
+ 767   4                                              }
+ 768   3                                              while(right==0);
+ 769   3                                              break;
+ 770   3                              case 6: tpflag=0;
+ 771   3                                      speaker=0;
+ 772   3                                              while(OK==0);
+ 773   3                                              speaker=1;
+ 774   3                                              break;
+ 775   3                              default:;
+ 776   3                      }
+ 777   2              }//Ñ¡ÔñÓÎÏ·ËÙ¶ÈÑ­»·
+ 778   1      }
+ 779          //ÓÎÏ·¿ªÊ¼ÏÔÊ¾»­Ãæ
+ 780          void game_start_show()
+ 781          {
+ 782   1              bit tpflag=1;//ÖÃÑ­»·±êÖ¾Î»Îª1
+ 783   1              LCD_full_draw(start_pic);
+ 784   1              while(tpflag)
+ 785   1              {
+ 786   2                      switch(basic_button())
+ 787   2                      {
+ 788   3                              case 6: tpflag=0;
+ 789   3                                      speaker=0;
+ 790   3                                              while(OK==0);
+ 791   3                                              speaker=1;
+ 792   3                                              break;
+C51 COMPILER V9.00   MAIN                                                                  04/28/2024 00:06:22 PAGE 14  
+
+ 793   3                              default:;
+ 794   3                      }
+ 795   2              }//game_start_showÑ­»·
+ 796   1      }
+ 797          
+ 798          
+ 799          
+ 800          //ÓÎÏ·³õÊ¼»¯º¯Êı
+ 801          void game_initialize()
+ 802          {
+ 803   1              box_down_reg=0;
+ 804   1              next_mode=6;
+ 805   1              next_shape=2;
+ 806   1              destroy_row_num=0;
+ 807   1              game_over_flag=0;
+ 808   1              pause_game_flag=0;
+ 809   1      
+ 810   1              LCD_clear();
+ 811   1      
+ 812   1              time0_reg=0;
+ 813   1              display_basic();
+ 814   1      
+ 815   1              LCD_display_word(score_data,24,0,3);
+ 816   1              LCD_display_word(speed_data,24,3,3);
+ 817   1              show_score_num(3,1);
+ 818   1              show_speed_num(13,4);
+ 819   1      
+ 820   1      }
+ 821          //¶¨Ê±Æ÷0³õÊ¼»¯º¯Êı
+ 822          void time0_initialize()
+ 823          {
+ 824   1              TMOD=0x03;//¶¨Ê±Æ÷0£¬16Î»¹¤×÷·½Ê½
+ 825   1              TR0=1; //Æô¶¯¶¨Ê±Æ÷
+ 826   1              ET0=1; //´ò¿ª¶¨Ê±Æ÷0ÖĞ¶Ï
+ 827   1                              //Ä¬ÈÏÖĞ¶ÏÓÅÏÈ¼¶ÎªµÍ
+ 828   1              EA=1; //´ò¿ª×ÜÖĞ¶Ï
+ 829   1      }
+ 830          //¶íÂŞË¹·½¿éÓÎÏ·Ö÷º¯Êı
+ 831          void Tetris_main()
+ 832          {
+ 833   1              unsigned char i;
+ 834   1              for(i=0;i<19;i++)
+ 835   1              {
+ 836   2                      Box_Ram[i]=Box_Ram_data[i];
+ 837   2              };//ÔØÈëÓÎÏ·³õÊ¼ÏÔÊ¾»­Ãæ
+ 838   1              LCD_draw(mpic);
+ 839   1      
+ 840   1              game_over_flag=0;//ÓÎÏ·½áÊø±êÖ¾Î»ÖÃ0±íÊ¾ÓÎÏ·Î´½áÊø
+ 841   1              box0_build();
+ 842   1          box_build();
+ 843   1              box0_load();
+ 844   1              box_load();
+ 845   1      //      next_box();
+ 846   1              box0_to_Box_Ram(s_box0.x,s_box0.y,s_box0.box);
+ 847   1              box_to_Box_Ram(s_box.x,s_box.y,s_box.box);
+ 848   1              box_down_reg=(20-(speed_num<<1)-1);//ÎªÁËÊ¹·½¿éÒ»³öÏÖ¾ÍÄÜ±ä»»ĞÎ×´£¬ËùÒÔĞèÒª¾¡¿ìÊ¹µÃ·½¿éÏÂ½µÒ»ĞĞ£¬²»ÖªµÀÎª
+             -Ê²Ã´×î¸ßĞĞ²»ÄÜ±ä»»ĞÎ×´
+ 849   1              time0_initialize();
+ 850   1      
+ 851   1              while(!game_over_flag)//Èç¹ûÓÎÏ·½áÊø±êÖ¾Î»ÖÃ1£¬±íÊ¾ÓÎÏ·½áÊø£¬´òÆÆÑ­»·£¬µ÷ÓÃÓÎÏ·½áÊø»­ÃæÏÔÊ¾º¯Êı
+ 852   1              {
+ 853   2                      game_button();
+C51 COMPILER V9.00   MAIN                                                                  04/28/2024 00:06:22 PAGE 15  
+
+ 854   2              }
+ 855   1              EA=0;//ÓÎÏ·½áÊøºó¹ØÖĞ¶Ï
+ 856   1      }
+ 857          //ÓÎÏ·½áÊø»­ÃæÏÔÊ¾º¯Êı
+ 858          void game_over_show()
+ 859          {
+ 860   1              unsigned char i;
+ 861   1              bit tpflag=1;//ÖÃÑ­»·±êÖ¾Î»Îª1
+ 862   1              LCD_full_draw(over_pic);
+ 863   1              while(change==0);
+ 864   1              while(tpflag)
+ 865   1              {
+ 866   2                      switch(basic_button())
+ 867   2                      {
+ 868   3                              case 6: tpflag=0;
+ 869   3                                      speaker=0;
+ 870   3                                              while(OK==0);
+ 871   3                                              speaker=1;
+ 872   3                                              break;
+ 873   3                              default:;
+ 874   3                      }
+ 875   2              }//game over»­ÃæÑ­»·
+ 876   1              LCD_clear();
+ 877   1              for(i=0;i<128;i++)
+ 878   1              {
+ 879   2                      LCD_display_byte(i,0,0xff);
+ 880   2                      LCD_display_byte(i,7,0xff);
+ 881   2              }
+ 882   1              LCD_display_word(score_data,24,3,52);
+ 883   1              show_score_num(52,4);
+ 884   1              tpflag=1;
+ 885   1              while(tpflag)
+ 886   1              {
+ 887   2                      switch(basic_button())
+ 888   2                      {
+ 889   3                              case 6: tpflag=0;
+ 890   3                                      speaker=0;
+ 891   3                                              while(OK==0);
+ 892   3                                              speaker=1;
+ 893   3                                              break;
+ 894   3                              default:;
+ 895   3                      }
+ 896   2              }//ÓÎÏ·µÃ·ÖÏÔÊ¾Ñ­»·
+ 897   1      }
+ 898          
+ 899          
+ 900          
+ 901          
+ 902          void main()
+ 903          {
+ 904   1              LCD_initialize();
+ 905   1              LCD_clear();
+ 906   1              while(1)
+ 907   1              {
+ 908   2                      game_start_show();
+ 909   2                      select_speed();
+ 910   2                      game_initialize();//µ÷ÓÃÓÎÏ·³õÊ¼»¯º¯Êı£¬³õÊ¼»¯ÓÎÏ·ËùÓĞ±äÁ¿ÒÔ¼°ÔÚÒº¾§ÆÁÉÏÏÔÊ¾»ù±¾µÄĞÅÏ¢
+ 911   2                      Tetris_main();
+ 912   2                      game_over_show();       
+ 913   2              }       
+ 914   1      }
+ 915          
+C51 COMPILER V9.00   MAIN                                                                  04/28/2024 00:06:22 PAGE 16  
+
+ 916          
+ 917          
+ 918          
+ 919          //¶¨Ê±Æ÷0ÖĞ¶Ï·şÎñ
+ 920          void timer0() interrupt 1
+ 921          {
+ 922   1              TH0=0x00;
+ 923   1              TL0=0x00;
+ 924   1              if(time0_reg<10)
+ 925   1              {                                 
+ 926   2                      time0_reg++;
+ 927   2              }
+ 928   1              else
+ 929   1              {
+ 930   2                      time0_reg=0;
+ 931   2                      if(pause_game_flag==0)
+ 932   2                      {
+ 933   3                              game_execute();
+ 934   3                      //      show_speed_num(13,4);
+ 935   3                              refurbish_display();
+ 936   3                      }
+ 937   2              }
+ 938   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   3434    ----
+   CONSTANT SIZE    =   2601    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     35      39
+   IDATA SIZE       =     38    ----
+   BIT SIZE         =      2       7
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  4 WARNING(S),  0 ERROR(S)
